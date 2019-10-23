@@ -7,12 +7,11 @@ import (
 	"io/ioutil"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rivo/tview"
 	"github.com/wtfutil/wtf/view"
 )
-
-var offset = 0
 
 var leagueID = map[string]leagueInfo{
 	"BSA": {2013, "Brazil Série A"},
@@ -31,7 +30,6 @@ var leagueID = map[string]leagueInfo{
 }
 
 type Widget struct {
-	view.KeyboardWidget
 	view.TextWidget
 	*Client
 	settings *Settings
@@ -44,25 +42,20 @@ func NewWidget(app *tview.Application, pages *tview.Pages, settings *Settings) *
 	leagueId, err := getLeague(settings.league)
 	if err != nil {
 		widget = Widget{
-			KeyboardWidget: view.NewKeyboardWidget(app, pages, settings.common),
-			TextWidget:     view.NewTextWidget(app, settings.common),
-			err:            fmt.Errorf("Unable to get the league id for provided league '%s'", settings.league),
-			Client:         NewClient(settings.apiKey),
-			settings:       settings,
+			TextWidget: view.NewTextWidget(app, settings.common),
+			err:        fmt.Errorf("Unable to get the league id for provided league '%s'", settings.league),
+			Client:     NewClient(settings.apiKey),
+			settings:   settings,
 		}
 		return &widget
 	}
 	widget = Widget{
-		KeyboardWidget: view.NewKeyboardWidget(app, pages, settings.common),
-		TextWidget:     view.NewTextWidget(app, settings.common),
-		Client:         NewClient(settings.apiKey),
-		League:         leagueId,
-		settings:       settings,
+		TextWidget: view.NewTextWidget(app, settings.common),
+		Client:     NewClient(settings.apiKey),
+		League:     leagueId,
+		settings:   settings,
 	}
-	widget.initializeKeyboardControls()
-	widget.View.SetInputCapture(widget.InputCapture)
-	widget.View.SetScrollable(true)
-	widget.KeyboardWidget.SetView(widget.View)
+
 	return &widget
 }
 
@@ -78,57 +71,9 @@ func (widget *Widget) content() (string, string, bool) {
 	if widget.err != nil {
 		return title, widget.err.Error(), true
 	}
-	table, err := widget.GetStandings(widget.League.id)
-	if err != nil {
-		return title, err.Error(), true
-	}
 
-	if len(table) != 0 {
-		content = "Standings:\n\n"
-		buf := new(bytes.Buffer)
-		tStandings := createTable([]string{"No.", "Team", "MP", "Won", "Draw", "Lost", "GD", "Points"}, buf)
-		for _, val := range table {
-			row := []string{strconv.Itoa(val.Position), val.Team.Name, strconv.Itoa(val.PlayedGames), strconv.Itoa(val.Won), strconv.Itoa(val.Draw), strconv.Itoa(val.Lost), strconv.Itoa(val.GoalDifference), strconv.Itoa(val.Points)}
-			tStandings.Append(row)
-		}
-		tStandings.Render()
-		content += buf.String()
-		content += fmt.Sprintf("Offset: %d", offset)
-	}
-
-	matches, err := widget.GetMatches(widget.League.id)
-	if err != nil {
-		return title, err.Error(), true
-	}
-	if len(matches) != 0 {
-
-		scheduledBuf := new(bytes.Buffer)
-		playedBuf := new(bytes.Buffer)
-		tScheduled := createTable([]string{}, scheduledBuf)
-		tPlayed := createTable([]string{}, playedBuf)
-		for _, val := range matches {
-			if strings.Contains(val.AwayTeam.Name, widget.settings.team) || strings.Contains(val.HomeTeam.Name, widget.settings.team) || widget.settings.team == "" {
-				if val.Status == "SCHEDULED" {
-					row := []string{"⚽", val.HomeTeam.Name, "🆚", val.AwayTeam.Name, parseDateString(val.Date)}
-					tScheduled.Append(row)
-				} else if val.Status == "FINISHED" {
-					row := []string{"⚽", val.HomeTeam.Name, strconv.Itoa(val.Score.FullTime.HomeTeam), "🆚", val.AwayTeam.Name, strconv.Itoa(val.Score.FullTime.AwayTeam)}
-					tPlayed.Append(row)
-				}
-			}
-		}
-		tScheduled.Render()
-		tPlayed.Render()
-		if playedBuf.String() != "" {
-			content += "\nMatches Played:\n\n"
-			content += playedBuf.String()
-
-		}
-		if scheduledBuf.String() != "" {
-			content += "\nUpcoming Matches:\n\n"
-			content += scheduledBuf.String()
-		}
-	}
+	content += widget.GetStandings(widget.League.id)
+	content += widget.GetMatches(widget.League.id)
 
 	return title, content, wrap
 }
@@ -143,70 +88,95 @@ func getLeague(league string) (leagueInfo, error) {
 }
 
 // GetStandings of particular league
-func (widget *Widget) GetStandings(leagueId int) ([]Table, error) {
+func (widget *Widget) GetStandings(leagueId int) string {
 
 	var l LeagueStandings
-	var table []Table
-	fmt.Println("GetStandings")
-
+	var content string
+	buf := new(bytes.Buffer)
+	tStandings := createTable([]string{"No.", "Team", "MP", "Won", "Draw", "Lost", "GD", "Points"}, buf)
 	resp, err := widget.Client.footballRequest("standings", leagueId)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching standings: %s", err)
+		return fmt.Sprintf("Error fetching standings: %s", err.Error())
 	}
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return fmt.Sprintf("Error fetching standings: %s", err.Error())
 	}
 	err = json.Unmarshal(data, &l)
 	if err != nil {
-		return nil, err
+		return fmt.Sprintf("Error fetching standings: %s", err.Error())
 	}
 
+	if err != nil {
+		return fmt.Sprintf("Error reading standingCount: %s", err.Error())
+	}
 	if len(l.Standings) > 0 {
 		for _, i := range l.Standings[0].Table {
-			if i.Position <= 5 {
-				table = append(table, Table{
-					Position:       i.Position,
-					PlayedGames:    i.PlayedGames,
-					Draw:           i.Draw,
-					Won:            i.Won,
-					Points:         i.Points,
-					GoalDifference: i.GoalDifference,
-					Lost:           i.Lost,
-					Team: Team{
-						Name: i.Team.Name,
-					},
-				})
+			if i.Position <= widget.settings.standingCount {
+				row := []string{strconv.Itoa(i.Position), i.Team.Name, strconv.Itoa(i.PlayedGames), strconv.Itoa(i.Won), strconv.Itoa(i.Draw), strconv.Itoa(i.Lost), strconv.Itoa(i.GoalDifference), strconv.Itoa(i.Points)}
+				tStandings.Append(row)
 			}
+
 		}
 	} else {
-		return table, fmt.Errorf("Error fetching standings")
+		return fmt.Sprintf("Error fetching standings!")
 	}
 
-	return table, nil
+	tStandings.Render()
+	content += buf.String()
+
+	return content
 }
 
 // GetMatches of particular league
-func (widget *Widget) GetMatches(leagueId int) ([]Matches, error) {
+func (widget *Widget) GetMatches(leagueId int) string {
 
 	var l LeagueFixtuers
-	fmt.Println("GetMatches")
-	dateFrom, dateTo := getDateFrame(offset)
-	requestPath := fmt.Sprintf("matches?dateFrom=%s&dateTo=%s", dateFrom, dateTo)
+	var content string
+	scheduledBuf := new(bytes.Buffer)
+	playedBuf := new(bytes.Buffer)
+	tScheduled := createTable([]string{}, scheduledBuf)
+	tPlayed := createTable([]string{}, playedBuf)
+	today := time.Now()
+
+	requestPath := fmt.Sprintf("matches?dateFrom=%s&dateTo=%s", today.AddDate(0, 0, -widget.settings.matchesFrom).Format("2006-01-02"), today.AddDate(0, 0, widget.settings.matchesTo).Format("2006-01-02"))
 	resp, err := widget.Client.footballRequest(requestPath, leagueId)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching matches: %s", err)
+		return fmt.Sprintf("Error fetching matches: %s", err.Error())
 	}
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return fmt.Sprintf("Error fetching matches: %s", err.Error())
 	}
 	err = json.Unmarshal(data, &l)
 	if err != nil {
-		return nil, err
+		return fmt.Sprintf("Error fetching matches: %s", err.Error())
 	}
 
-	return l.Matches, nil
+	for _, val := range l.Matches {
+		if strings.Contains(val.AwayTeam.Name, widget.settings.favTeam) || strings.Contains(val.HomeTeam.Name, widget.settings.favTeam) || widget.settings.favTeam == "" {
+			if val.Status == "SCHEDULED" {
+				row := []string{"⚽", val.HomeTeam.Name, "🆚", val.AwayTeam.Name, parseDateString(val.Date)}
+				tScheduled.Append(row)
+			} else if val.Status == "FINISHED" {
+				row := []string{"⚽", val.HomeTeam.Name, strconv.Itoa(val.Score.FullTime.HomeTeam), "🆚", val.AwayTeam.Name, strconv.Itoa(val.Score.FullTime.AwayTeam)}
+				tPlayed.Append(row)
+			}
+		}
+	}
+	tScheduled.Render()
+	tPlayed.Render()
+	if playedBuf.String() != "" {
+		content += "\nMatches Played:\n\n"
+		content += playedBuf.String()
+
+	}
+	if scheduledBuf.String() != "" {
+		content += "\nUpcoming Matches:\n\n"
+		content += scheduledBuf.String()
+	}
+
+	return content
 }
