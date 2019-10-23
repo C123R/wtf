@@ -131,7 +131,7 @@ func MakeWidget(
 		widget = feedreader.NewWidget(app, pages, settings)
 	case "football":
 		settings := football.NewSettingsFromYAML(moduleName, moduleConfig, config)
-		widget = football.NewWidget(app, settings)
+		widget = football.NewWidget(app, pages, settings)
 	case "gcal":
 		settings := gcal.NewSettingsFromYAML(moduleName, moduleConfig, config)
 		widget = gcal.NewWidget(app, settings)

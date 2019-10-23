@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	defaultFocusable = false
+	defaultFocusable = true
 	defaultTitle     = "football"
 )
 
@@ -25,7 +25,7 @@ func NewSettingsFromYAML(name string, ymlConfig *config.Config, globalConfig *co
 		common: cfg.NewCommonSettingsFromModule(name, defaultTitle, defaultFocusable, ymlConfig, globalConfig),
 		apiKey: ymlConfig.UString("apiKey", ymlConfig.UString("apikey", os.Getenv("WTF_FOOTBALL_API_KEY"))),
 		league: ymlConfig.UString("league", ymlConfig.UString("league", os.Getenv("WTF_FOOTBALL_LEAGUE"))),
-		team:   ymlConfig.UString("teams", ymlConfig.UString("teams", os.Getenv("WTF_FOOTBALL_TEAM"))),
+		team:   ymlConfig.UString("team", ymlConfig.UString("team", os.Getenv("WTF_FOOTBALL_TEAM"))),
 	}
 	return &settings
 }
